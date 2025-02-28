@@ -9,9 +9,12 @@
 (define-constant err-listing-not-found (err u102))
 (define-constant err-wrong-price (err u103))
 (define-constant err-not-owner (err u104))
+(define-constant err-not-found (err u105))
+(define-constant err-insufficient-funds (err u106))
 
 ;; Data Variables
 (define-data-var marketplace-enabled bool true)
+(define-data-var next-token-id uint u0)
 
 ;; NFT Definition
 (define-non-fungible-token artio-nft uint)
@@ -30,6 +33,7 @@
 ;; Initialize NFT
 (define-public (initialize-nft)
     (begin
+        (asserts! (is-eq tx-sender contract-owner) err-owner-only)
         (try! (nft-mint? artio-nft u0 contract-owner))
         (ok true)
     )
@@ -57,6 +61,7 @@
             title: title,
             uri: uri
         })
+        (var-set next-token-id (+ token-id u1))
         (ok token-id)
     )
 )
@@ -91,9 +96,11 @@
             (royalty-amount (/ (* price royalty) u100))
             (seller-amount (- price (+ market-cut royalty-amount)))
         )
-        (try! (stx-transfer? price tx-sender contract-owner))
-        (try! (stx-transfer? seller-amount contract-owner seller))
-        (try! (stx-transfer? royalty-amount contract-owner artist))
+        (asserts! (>= (stx-get-balance tx-sender) price) err-insufficient-funds)
+        ;; Process payments directly to respective parties
+        (try! (stx-transfer? market-cut tx-sender contract-owner))
+        (try! (stx-transfer? royalty-amount tx-sender artist))
+        (try! (stx-transfer? seller-amount tx-sender seller))
         (try! (nft-transfer? artio-nft token-id seller tx-sender))
         (map-delete token-listings token-id)
         (ok true)
@@ -107,6 +114,10 @@
 
 (define-read-only (get-token-metadata (token-id uint))
     (ok (map-get? token-metadata token-id))
+)
+
+(define-read-only (get-next-token-id)
+    (ok (var-get next-token-id))
 )
 
 (define-read-only (is-whitelisted (artist principal))
